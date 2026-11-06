@@ -22,7 +22,7 @@ namespace WeCreatives_EOI.Classes
         /// Posts status update for Call Center orders to https://api.pjcrescent.com/api/public/orders/status
         /// Method: PATCH
         /// </summary>
-        public static async Task<bool> PostCallCenterOrderStatusAsync(string orderNumber, string status, string ccTransact)
+        public static async Task<bool> PostCallCenterOrderStatusAsync(string orderNumber, string status, string ccTransact, int retryCount = 5)
         {
             if (string.IsNullOrWhiteSpace(orderNumber) || string.IsNullOrWhiteSpace(status))
             {
@@ -41,47 +41,74 @@ namespace WeCreatives_EOI.Classes
                 return true;
             }
 
-            try
+            if (retryCount < 1) retryCount = 1;
+
+            string endpoint = "https://api.pjcrescent.com/api/public/orders/status";
+
+            var payload = new
             {
-                string endpoint = "https://api.pjcrescent.com/api/public/orders/status";
+                order_number = cleanOrderNumber,
+                status = cleanStatus,
+                cctransact = cleanTransact
+            };
 
-                var payload = new
+            string jsonPayload = JsonSerializer.Serialize(payload);
+
+            int attempt = 0;
+            while (attempt < retryCount)
+            {
+                attempt++;
+                try
                 {
-                    order_number = cleanOrderNumber,
-                    status = cleanStatus,
-                    cctransact = cleanTransact
-                };
-
-                string jsonPayload = JsonSerializer.Serialize(payload);
-
-                using (var request = new HttpRequestMessage(new HttpMethod("PATCH"), endpoint))
-                {
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-
-                    Log.Information("Sending Call Center order status update to {Endpoint}. Payload: {Payload}", endpoint, jsonPayload);
-
-                    HttpResponseMessage response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-                    string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-                    if (response.IsSuccessStatusCode)
+                    using (var request = new HttpRequestMessage(new HttpMethod("PATCH"), endpoint))
                     {
-                        _sentStatusCache.TryAdd(cacheKey, 0);
-                        Log.Information("Successfully updated Call Center Order Status. OrderNumber: {OrderNumber}, Status: {Status}, Transact: {Transact}, Response: {Response}", cleanOrderNumber, cleanStatus, cleanTransact, responseBody);
-                        return true;
-                    }
-                    else
-                    {
-                        Log.Error("Failed to update Call Center Order Status. OrderNumber: {OrderNumber}, Status: {Status}, Transact: {Transact}, StatusCode: {StatusCode}, Response: {Response}", cleanOrderNumber, cleanStatus, cleanTransact, response.StatusCode, responseBody);
-                        return false;
+                        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                        request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+                        Log.Information("Sending Call Center order status update to {Endpoint} (Attempt {Attempt}/{MaxRetries}). Payload: {Payload}", endpoint, attempt, retryCount, jsonPayload);
+
+                        HttpResponseMessage response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            _sentStatusCache.TryAdd(cacheKey, 0);
+                            Log.Information("Successfully updated Call Center Order Status. OrderNumber: {OrderNumber}, Status: {Status}, Transact: {Transact}, Response: {Response}", cleanOrderNumber, cleanStatus, cleanTransact, responseBody);
+                            return true;
+                        }
+                        else
+                        {
+                            Log.Warning("Failed to update Call Center Order Status on Attempt {Attempt}/{MaxRetries}. OrderNumber: {OrderNumber}, Status: {Status}, StatusCode: {StatusCode}, Response: {Response}", attempt, retryCount, cleanOrderNumber, cleanStatus, response.StatusCode, responseBody);
+
+                            int statusCode = (int)response.StatusCode;
+                            if (statusCode >= 400 && statusCode < 500 && statusCode != 408 && statusCode != 429)
+                            {
+                                return false;
+                            }
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Exception on Attempt {Attempt}/{MaxRetries} while posting Call Center Order Status for OrderNumber: {OrderNumber}, Status: {Status}. Will retry if attempts remain.", attempt, retryCount, cleanOrderNumber, cleanStatus);
+                }
+
+                if (attempt < retryCount)
+                {
+                    int delayMs = attempt switch
+                    {
+                        1 => 3000,
+                        2 => 6000,
+                        3 => 12000,
+                        _ => 20000
+                    };
+                    Log.Information("Waiting {DelaySeconds}s before retrying Call Center status update for OrderNumber: {OrderNumber}...", delayMs / 1000, cleanOrderNumber);
+                    await Task.Delay(delayMs).ConfigureAwait(false);
+                }
             }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Exception occurred while posting Call Center Order Status for OrderNumber: {OrderNumber}, Status: {Status}", cleanOrderNumber, cleanStatus);
-                return false;
-            }
+
+            Log.Error("All {MaxRetries} attempts exhausted. Failed to update Call Center Order Status for OrderNumber: {OrderNumber}, Status: {Status}", retryCount, cleanOrderNumber, cleanStatus);
+            return false;
         }
         private const int COINIT_APARTMENTTHREADED = 0x2;
 
