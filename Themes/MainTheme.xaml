@@ -1,0 +1,34 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="PrimaryColor1" Color="#f6fff8"/>
+    <SolidColorBrush x:Key="PrimaryColor2" Color="#eaf4f4"/>
+    <SolidColorBrush x:Key="PrimaryColor3" Color="#cce3de"/>
+    <SolidColorBrush x:Key="PrimaryColor4" Color="#a4c3b2"/>
+    <SolidColorBrush x:Key="PrimaryColor5" Color="#6b9080"/>
+
+    <SolidColorBrush x:Key="PrimaryTextBalck" Color="#01161e"/>
+    <SolidColorBrush x:Key="PrimaryTextWhite" Color="#01161e"/>
+
+    <SolidColorBrush x:Key="Color0" Color="#FAFFFF"/>
+    <SolidColorBrush x:Key="Color1" Color="#E6F2F2"/>
+    <SolidColorBrush x:Key="Color2" Color="#86BFBF"/>
+    <SolidColorBrush x:Key="Color3" Color="#407D80"/>
+    <SolidColorBrush x:Key="Color4" Color="#F28484"/>
+    <SolidColorBrush x:Key="Color5" Color="#F2E984"/>
+    <SolidColorBrush x:Key="Color6" Color="#F9B572"/>
+    <SolidColorBrush x:Key="Color8" Color="#70CC79"/>
+    <SolidColorBrush x:Key="Color9" Color="#70ADCC"/>
+    <SolidColorBrush x:Key="Color10" Color="#B99470"/>
+    <SolidColorBrush x:Key="Color11" Color="#265073"/>
+    <SolidColorBrush x:Key="Color12" Color="#032F30"/>
+    <SolidColorBrush x:Key="Color13" Color="#FFA6A6"/>
+
+
+
+
+
+
+    <!--Error Box Color-->
+
+</ResourceDictionary>

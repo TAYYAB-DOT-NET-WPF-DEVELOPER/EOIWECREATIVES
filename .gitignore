@@ -1,0 +1,27 @@
+## Visual Studio / .NET / C#
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+*.log
+*OrderLog*.txt
+
+# Visual Studio files
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+
+# Auto-generated
+*.dotCover
+*.resharper
+*.ncrunch*
+*.ide/

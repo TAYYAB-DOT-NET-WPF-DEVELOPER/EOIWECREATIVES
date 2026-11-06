@@ -1,0 +1,21 @@
+﻿<Window x:Class="WeCreatives_EOI.CloseWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Icon="/Assets/Logo.png"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="ToolWindow"
+        Title="Close" Height="200" Width="300">
+    <Grid>
+        <StackPanel Margin="10">
+            <Label Content="Enter password:" Margin="30,0,0,0"/>
+            <PasswordBox x:Name="passwordBox" Width="220" Height="30px" Margin="0,5,0,5" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button Content="OK" Width="105" Click="OK_Click" Margin="0,0,10,0" Style="{DynamicResource MainButton}"/>
+                <Button Content="Cancel" Width="100" Click="Cancel_Click" Style="{DynamicResource MainButton}"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

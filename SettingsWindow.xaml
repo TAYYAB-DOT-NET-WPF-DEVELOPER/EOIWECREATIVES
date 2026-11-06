@@ -1,0 +1,132 @@
+<Window x:Class="WeCreatives_EOI.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="App Configuration Settings" 
+        Icon="/Assets/Logo.png"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="ToolWindow"
+        Height="720" 
+        Width="640"
+        Background="{DynamicResource Color1}">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" 
+                   Text="Configuration Settings" 
+                   FontSize="20" 
+                   FontWeight="Bold" 
+                   Foreground="{DynamicResource Color3}" 
+                   Margin="0,0,0,10"/>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Grid Margin="0,5,10,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="210"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Store POS Code (SNUM) -->
+                <Label Grid.Row="0" Grid.Column="0" Content="Store POS Code (SNUM):" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="0" Grid.Column="1" x:Name="txtSNUM" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- HubRise Store Code (HUBRISESNUM) -->
+                <Label Grid.Row="1" Grid.Column="0" Content="HubRise Store Code:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="1" Grid.Column="1" x:Name="txtHUBRISESNUM" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- TAB Store Code (TABSNUM) -->
+                <Label Grid.Row="2" Grid.Column="0" Content="TAB Store Code (TABSNUM):" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="2" Grid.Column="1" x:Name="txtTABSNUM" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Call Center Store Code (CCSNUM) -->
+                <Label Grid.Row="3" Grid.Column="0" Content="Call Center Store Code (CCSNUM):" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="3" Grid.Column="1" x:Name="txtCCSNUM" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+                <Label Grid.Row="17" Grid.Column="0" Content="Foodpanda Store Code (FPSNUM):" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="17" Grid.Column="1" x:Name="txtFOODPANDASNUM" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Main DB Server (HOIP) -->
+                <Label Grid.Row="4" Grid.Column="0" Content="Main DB Server (HOIP):" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="4" Grid.Column="1" x:Name="txtMainDbServer" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Main DB User -->
+                <Label Grid.Row="5" Grid.Column="0" Content="Main DB User:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="5" Grid.Column="1" x:Name="txtMainDbUser" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Main DB Password -->
+                <Label Grid.Row="6" Grid.Column="0" Content="Main DB Password:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="6" Grid.Column="1" x:Name="txtMainDbPassword" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- HubRise DB Server -->
+                <Label Grid.Row="7" Grid.Column="0" Content="HubRise DB Server (OrderCheck):" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="7" Grid.Column="1" x:Name="txtHubRiseDbServer" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- HubRise DB User -->
+                <Label Grid.Row="8" Grid.Column="0" Content="HubRise DB User:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="8" Grid.Column="1" x:Name="txtHubRiseDbUser" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- HubRise DB Password -->
+                <Label Grid.Row="9" Grid.Column="0" Content="HubRise DB Password:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="9" Grid.Column="1" x:Name="txtHubRiseDbPassword" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Vendor Driver URL -->
+                <Label Grid.Row="10" Grid.Column="0" Content="Rider Driver API URL:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="10" Grid.Column="1" x:Name="txtVendorDriverUrl" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Vendor Status URL -->
+                <Label Grid.Row="11" Grid.Column="0" Content="Order Status API URL:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="11" Grid.Column="1" x:Name="txtVendorStatusUrl" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Vendor Auth URL -->
+                <Label Grid.Row="12" Grid.Column="0" Content="Order Auth API URL:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="12" Grid.Column="1" x:Name="txtVendorAuthUrl" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Order Status API Key -->
+                <Label Grid.Row="13" Grid.Column="0" Content="Order Status API Key:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="13" Grid.Column="1" x:Name="txtVendorApiKey" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Rider Tracking API Key -->
+                <Label Grid.Row="14" Grid.Column="0" Content="Rider Tracking API Key:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="14" Grid.Column="1" x:Name="txtRiderApiKey" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Vendor Email -->
+                <Label Grid.Row="15" Grid.Column="0" Content="Vendor Email:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="15" Grid.Column="1" x:Name="txtVendorEmail" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+
+                <!-- Vendor Password -->
+                <Label Grid.Row="16" Grid.Column="0" Content="Vendor Password:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox Grid.Row="16" Grid.Column="1" x:Name="txtVendorPassword" Height="28" VerticalContentAlignment="Center" Margin="0,4" Padding="5,0"/>
+            </Grid>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Content="Save Configuration" Width="160" Height="35" Click="Save_Click" Style="{DynamicResource MainButton}" Margin="0,0,10,0"/>
+            <Button Content="Cancel" Width="100" Height="35" Click="Cancel_Click" Style="{DynamicResource ExitButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>
