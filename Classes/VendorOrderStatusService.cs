@@ -2,6 +2,7 @@ using Newtonsoft.Json;
 using Serilog;
 using System;
 using System.Configuration;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -88,26 +89,20 @@ namespace WeCreatives_EOI.Services
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         }
 
-        public async Task<string?> GetVendorAccessTokenAsync()
+        public async Task<string?> GetVendorAccessTokenAsync(bool forceRefresh = false)
         {
             lock (_tokenLock)
             {
-                if (!string.IsNullOrWhiteSpace(_cachedToken) && DateTime.UtcNow < _tokenExpiryTime)
+                if (!forceRefresh && !string.IsNullOrWhiteSpace(_cachedToken) && DateTime.UtcNow < _tokenExpiryTime)
                 {
                     return _cachedToken;
                 }
 
-                if (DateTime.UtcNow < _authBackoffUntil)
+                if (!forceRefresh && DateTime.UtcNow < _authBackoffUntil)
                 {
-                    Log.Warning("Skipping Vendor Auth request due to active rate-limit backoff until {BackoffUntil}", _authBackoffUntil.ToLocalTime());
+                    Log.Warning("[Vendor Auth API] Skipping Vendor Auth request due to active rate-limit backoff until {BackoffUntil}", _authBackoffUntil.ToLocalTime());
                     return _cachedToken;
                 }
-            }
-
-            if (IsWebOrderApiInBackoff(out DateTime backoffUntil))
-            {
-                Log.Warning("Skipping Vendor Auth request because Web Order API is paused due to consecutive errors until {BackoffUntil}", backoffUntil.ToLocalTime());
-                return _cachedToken;
             }
 
             try
@@ -118,17 +113,26 @@ namespace WeCreatives_EOI.Services
                     password = VendorPassword
                 };
 
+                string payloadJson = JsonConvert.SerializeObject(requestBody);
+                Log.Information("[Vendor Auth API] Requesting token -> Url: {Url}, Email: {Email}", VendorAuthUrl, VendorEmail);
+
                 using (var request = new HttpRequestMessage(HttpMethod.Post, VendorAuthUrl))
                 {
                     request.Headers.TryAddWithoutValidation("User-Agent", "PostmanRuntime/7.56.1");
                     request.Headers.TryAddWithoutValidation("Accept", "*/*");
                     request.Headers.TryAddWithoutValidation("x-api-key", VendorApiKey);
-                    request.Content = new StringContent(JsonConvert.SerializeObject(requestBody), Encoding.UTF8, "application/json");
+                    request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
 
+                    var sw = Stopwatch.StartNew();
                     HttpResponseMessage response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                    sw.Stop();
+
+                    string jsonStr = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    Log.Information("[Vendor Auth API] Response received -> StatusCode: {StatusCode} ({(int)StatusCode}), Latency: {Latency}ms, Body: {Body}",
+                        response.StatusCode, (int)response.StatusCode, sw.ElapsedMilliseconds, jsonStr);
+
                     if (response.IsSuccessStatusCode)
                     {
-                        string jsonStr = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                         using var doc = JsonDocument.Parse(jsonStr);
                         var root = doc.RootElement;
                         if (root.TryGetProperty("data", out var dataElement) &&
@@ -149,17 +153,16 @@ namespace WeCreatives_EOI.Services
                             }
 
                             RecordWebOrderApiSuccess();
-                            Log.Information("Successfully retrieved Vendor Access Token.");
+                            Log.Information("[Vendor Auth API] Successfully retrieved and cached Vendor Access Token (Expires in {ExpiresIn}s).", expiresIn);
                             return token;
                         }
                     }
 
                     lock (_tokenLock)
                     {
-                        // On error or rate-limit (429), back off for 2 minutes to prevent hammering /vendor/auth
-                        _authBackoffUntil = DateTime.UtcNow.AddMinutes(2);
+                        _authBackoffUntil = DateTime.UtcNow.AddMinutes(1);
                     }
-                    Log.Error("Vendor auth failed with HTTP status code {StatusCode}. Backing off until {BackoffUntil}", response.StatusCode, _authBackoffUntil.ToLocalTime());
+                    Log.Error("[Vendor Auth API] Vendor auth failed with HTTP status code {StatusCode}. Response: {Response}", response.StatusCode, jsonStr);
                     RecordWebOrderApiFailure("VendorAuth", $"HTTP Status {response.StatusCode}");
                 }
             }
@@ -167,9 +170,9 @@ namespace WeCreatives_EOI.Services
             {
                 lock (_tokenLock)
                 {
-                    _authBackoffUntil = DateTime.UtcNow.AddMinutes(2);
+                    _authBackoffUntil = DateTime.UtcNow.AddMinutes(1);
                 }
-                Log.Error(ex, "Exception occurred while obtaining Vendor Access Token.");
+                Log.Error(ex, "[Vendor Auth API] Exception occurred while obtaining Vendor Access Token.");
                 RecordWebOrderApiFailure("VendorAuth", ex.Message);
             }
 
@@ -179,79 +182,126 @@ namespace WeCreatives_EOI.Services
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _sentOrderStatusCache =
             new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
 
-        public async Task<bool> UpdateOrderStatusAsync(string orderId, string statusCode)
+        public async Task<bool> UpdateOrderStatusAsync(string orderId, string statusCode, int retryCount = 5)
         {
             if (string.IsNullOrWhiteSpace(orderId) || string.IsNullOrWhiteSpace(statusCode))
             {
-                Log.Warning("UpdateOrderStatusAsync called with empty orderId or statusCode.");
+                Log.Warning("[Vendor Order Status API] UpdateOrderStatusAsync called with empty orderId or statusCode.");
                 return false;
             }
 
-            string cacheKey = $"{orderId.Trim().ToUpperInvariant()}:{statusCode.Trim().ToLowerInvariant()}";
+            string cleanOrderId = orderId.Trim();
+            string cleanStatusCode = statusCode.Trim();
+            string cacheKey = $"{cleanOrderId.ToUpperInvariant()}:{cleanStatusCode.ToLowerInvariant()}";
+
             if (_sentOrderStatusCache.ContainsKey(cacheKey))
             {
-                Log.Debug("Skipping duplicate status update for OrderId '{OrderId}' with status '{StatusCode}' as it was already sent.", orderId, statusCode);
+                Log.Debug("[Vendor Order Status API] Skipping duplicate status update for OrderId '{OrderId}' with status '{StatusCode}' as it was already successfully sent.", cleanOrderId, cleanStatusCode);
                 return true;
             }
 
-            if (IsWebOrderApiInBackoff(out DateTime backoffUntil))
+            if (retryCount < 1)
+                retryCount = 1;
+
+            var requestBody = new
             {
-                Log.Warning("Skipping UpdateOrderStatusAsync for OrderId '{OrderId}' because Web Order API is paused due to consecutive errors until {BackoffUntil}", orderId, backoffUntil.ToLocalTime());
-                return false;
-            }
+                orderId = cleanOrderId,
+                statusCode = cleanStatusCode
+            };
+            string jsonPayload = JsonConvert.SerializeObject(requestBody);
 
-            try
+            for (int attempt = 1; attempt <= retryCount; attempt++)
             {
-                string? token = await GetVendorAccessTokenAsync().ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(token))
+                var sw = Stopwatch.StartNew();
+
+                try
                 {
-                    Log.Error("Cannot update vendor order status for OrderId {OrderId} because token is null.", orderId);
-                    RecordWebOrderApiFailure("UpdateOrderStatus", "Token is null");
-                    return false;
-                }
+                    // If previous attempt had 401 Unauthorized, force refresh token
+                    bool forceRefresh = attempt > 1;
+                    string? token = await GetVendorAccessTokenAsync(forceRefresh: forceRefresh).ConfigureAwait(false);
 
-                var requestBody = new
-                {
-                    orderId = orderId.Trim(),
-                    statusCode = statusCode.Trim()
-                };
-
-                using (var request = new HttpRequestMessage(HttpMethod.Put, VendorStatusUrl))
-                {
-                    request.Headers.TryAddWithoutValidation("User-Agent", "PostmanRuntime/7.56.1");
-                    request.Headers.TryAddWithoutValidation("Accept", "*/*");
-                    request.Headers.TryAddWithoutValidation("x-api-key", VendorApiKey);
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                    request.Content = new StringContent(JsonConvert.SerializeObject(requestBody), Encoding.UTF8, "application/json");
-
-                    HttpResponseMessage response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-                    string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-                    if (response.IsSuccessStatusCode)
+                    if (string.IsNullOrWhiteSpace(token))
                     {
-                        _sentOrderStatusCache.TryAdd(cacheKey, 0);
-                        RecordWebOrderApiSuccess();
-                        Log.Information("Successfully updated Vendor Order Status for OrderId {OrderId} to '{StatusCode}'. Response: {Response}", orderId, statusCode, responseBody);
-                        return true;
-                    }
-                    else
-                    {
-                        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                        Log.Warning("[Vendor Order Status API] Attempt {Attempt}/{MaxRetries}: Cannot proceed for OrderId {OrderId} because token is null.",
+                            attempt, retryCount, cleanOrderId);
+
+                        if (attempt < retryCount)
                         {
-                            lock (_tokenLock) { _cachedToken = null; }
+                            await Task.Delay(2000).ConfigureAwait(false);
+                            continue;
                         }
-                        Log.Error("Failed to update Vendor Order Status for OrderId {OrderId} to '{StatusCode}'. Status: {Status}, Response: {Response}", orderId, statusCode, response.StatusCode, responseBody);
-                        RecordWebOrderApiFailure("UpdateOrderStatus", $"HTTP Status {response.StatusCode}");
                         return false;
                     }
+
+                    Log.Information("[Vendor Order Status API] Sending Request (Attempt {Attempt}/{MaxRetries}) -> Url: {Url}, Method: PUT, Payload: {Payload}",
+                        attempt, retryCount, VendorStatusUrl, jsonPayload);
+
+                    using (var request = new HttpRequestMessage(HttpMethod.Put, VendorStatusUrl))
+                    {
+                        request.Headers.TryAddWithoutValidation("User-Agent", "PostmanRuntime/7.56.1");
+                        request.Headers.TryAddWithoutValidation("Accept", "*/*");
+                        request.Headers.TryAddWithoutValidation("x-api-key", VendorApiKey);
+                        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                        request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+                        HttpResponseMessage response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        sw.Stop();
+
+                        string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                        Log.Information("[Vendor Order Status API] Server Response received (Attempt {Attempt}/{MaxRetries}) -> OrderId: {OrderId}, StatusCode: {StatusCode} ({(int)StatusCode}), Latency: {Latency}ms, Body: {ResponseBody}",
+                            attempt, retryCount, cleanOrderId, response.StatusCode, (int)response.StatusCode, sw.ElapsedMilliseconds, responseBody);
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            _sentOrderStatusCache.TryAdd(cacheKey, 0);
+                            RecordWebOrderApiSuccess();
+                            Log.Information("[Vendor Order Status API] SUCCESS for OrderId: {OrderId}, StatusCode: {StatusCode}", cleanOrderId, cleanStatusCode);
+                            return true;
+                        }
+                        else
+                        {
+                            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                            {
+                                lock (_tokenLock) { _cachedToken = null; }
+                                Log.Warning("[Vendor Order Status API] Attempt {Attempt}/{MaxRetries}: Received 401 Unauthorized. Cleared cached token and will retry with fresh token.", attempt, retryCount);
+                            }
+                            else
+                            {
+                                Log.Warning("[Vendor Order Status API] Attempt {Attempt}/{MaxRetries}: Server returned non-success status {StatusCode}. Body: {ResponseBody}",
+                                    attempt, retryCount, response.StatusCode, responseBody);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    sw.Stop();
+                    Log.Warning(ex, "[Vendor Order Status API] EXCEPTION on Attempt {Attempt}/{MaxRetries} for OrderId {OrderId} after {ElapsedMs}ms. Error: {Message}",
+                        attempt, retryCount, cleanOrderId, sw.ElapsedMilliseconds, ex.Message);
+                }
+
+                if (attempt < retryCount)
+                {
+                    int delayMs = attempt switch
+                    {
+                        1 => 2000,
+                        2 => 4000,
+                        3 => 8000,
+                        4 => 12000,
+                        _ => 15000
+                    };
+
+                    Log.Information("[Vendor Order Status API] Waiting {DelaySeconds}s before Retry #{NextAttempt} for OrderId: {OrderId}...",
+                        delayMs / 1000, attempt + 1, cleanOrderId);
+                    await Task.Delay(delayMs).ConfigureAwait(false);
                 }
             }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Exception while updating Vendor Order Status for OrderId {OrderId}", orderId);
-                RecordWebOrderApiFailure("UpdateOrderStatus", ex.Message);
-                return false;
-            }
+
+            Log.Error("[Vendor Order Status API] All {MaxRetries} attempts exhausted. Failed to update Vendor Order Status for OrderId: {OrderId}, Status: {StatusCode}",
+                retryCount, cleanOrderId, cleanStatusCode);
+            RecordWebOrderApiFailure("UpdateOrderStatus", "Max retries exhausted");
+            return false;
         }
 
         public async Task<bool> CreateDriverAsync(object driverData)
@@ -397,6 +447,9 @@ namespace WeCreatives_EOI.Services
                     driver_pos_code = driverPosCode.Trim(),
                     order = orderIds
                 };
+                string jsonPayload = JsonConvert.SerializeObject(requestBody);
+                Log.Information("[Vendor Driver Assignment API] Sending Request -> Url: {Url}, Method: PUT, Payload: {Payload}",
+                    VendorDriverAssignmentUrl, jsonPayload);
 
                 using (var request = new HttpRequestMessage(HttpMethod.Put, VendorDriverAssignmentUrl))
                 {
@@ -404,14 +457,19 @@ namespace WeCreatives_EOI.Services
                     request.Headers.TryAddWithoutValidation("Accept", "*/*");
                     request.Headers.TryAddWithoutValidation("x-api-key", VendorApiKey);
                     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                    request.Content = new StringContent(JsonConvert.SerializeObject(requestBody), Encoding.UTF8, "application/json");
+                    request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
+                    var sw = Stopwatch.StartNew();
                     HttpResponseMessage response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                    sw.Stop();
                     string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                    Log.Information("[Vendor Driver Assignment API] Server Response received -> Driver: {DriverPosCode}, StatusCode: {StatusCode} ({(int)StatusCode}), Latency: {Latency}ms, Body: {ResponseBody}",
+                        driverPosCode, response.StatusCode, (int)response.StatusCode, sw.ElapsedMilliseconds, responseBody);
 
                     if (response.IsSuccessStatusCode)
                     {
-                        Log.Information("Successfully assigned orders to driver {DriverPosCode}. Response: {Response}", driverPosCode, responseBody);
+                        Log.Information("[Vendor Driver Assignment API] Successfully assigned orders to driver {DriverPosCode}. Response: {Response}", driverPosCode, responseBody);
                         return true;
                     }
                     else
@@ -420,7 +478,7 @@ namespace WeCreatives_EOI.Services
                         {
                             lock (_tokenLock) { _cachedToken = null; }
                         }
-                        Log.Error("Failed to assign orders to driver {DriverPosCode}. Status: {Status}, Response: {Response}", driverPosCode, response.StatusCode, responseBody);
+                        Log.Error("[Vendor Driver Assignment API] Failed to assign orders to driver {DriverPosCode}. Status: {Status}, Response: {Response}", driverPosCode, response.StatusCode, responseBody);
                         return false;
                     }
                 }

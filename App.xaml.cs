@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using System;
 using System.Configuration;
@@ -16,7 +16,7 @@ namespace WeCreatives_EOI
         private IServiceProvider? _serviceProvider;
         private static Mutex? _mutex;
         private static bool _hasMutex;
-        private const string MutexName = "TABORDERINGEOI";
+        private const string MutexName = "TABORDERINGEOIi8";
 
         public static string SNUM => ConfigurationManager.AppSettings["SNUM"] ?? string.Empty;
         public static string HUBRISESNUM => ConfigurationManager.AppSettings["HUBRISESNUM"] ?? ConfigurationManager.AppSettings["SNUM"] ?? string.Empty;
@@ -97,7 +97,7 @@ namespace WeCreatives_EOI
             
             HttpClient sharedHttpClient = new HttpClient
             {
-                Timeout = TimeSpan.FromSeconds(30)
+                Timeout = TimeSpan.FromSeconds(120)
             };
             sharedHttpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "PostmanRuntime/7.56.1");
             sharedHttpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "*/*");

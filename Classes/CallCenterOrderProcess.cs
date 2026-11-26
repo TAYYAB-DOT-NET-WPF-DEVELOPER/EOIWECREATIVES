@@ -2,6 +2,7 @@ using PixelPointPOS;
 using Serilog;
 using System;
 using System.Data.Odbc;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Net.Http;
@@ -15,12 +16,19 @@ namespace WeCreatives_EOI.Classes
 {
     public static class CallCenterOrderProcess
     {
-        private static readonly HttpClient _httpClient = new HttpClient();
+        private static readonly HttpClient _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(120)
+        };
         private static readonly ConcurrentDictionary<string, byte> _sentStatusCache = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
 
+        private const string NewCallCenterStatusUrl = "https://pjcrescent.com/api/HQEOI/CCORDERSTATUS";
+        private const string OldCallCenterStatusUrl = "https://api.pjcrescent.com/api/public/orders/status";
+
         /// <summary>
-        /// Posts status update for Call Center orders to https://api.pjcrescent.com/api/public/orders/status
-        /// Method: PATCH
+        /// Posts status update for Call Center orders to both endpoints:
+        /// 1. Updated API: https://pjcrescent.com/api/HQEOI/CCORDERSTATUS (POST)
+        /// 2. Old API: https://api.pjcrescent.com/api/public/orders/status (PATCH)
         /// </summary>
         public static async Task<bool> PostCallCenterOrderStatusAsync(string orderNumber, string status, string ccTransact, int retryCount = 5)
         {
@@ -43,8 +51,6 @@ namespace WeCreatives_EOI.Classes
 
             if (retryCount < 1) retryCount = 1;
 
-            string endpoint = "https://api.pjcrescent.com/api/public/orders/status";
-
             var payload = new
             {
                 order_number = cleanOrderNumber,
@@ -54,31 +60,79 @@ namespace WeCreatives_EOI.Classes
 
             string jsonPayload = JsonSerializer.Serialize(payload);
 
+            // 1. First call Updated API: https://pjcrescent.com/api/HQEOI/CCORDERSTATUS (POST)
+            bool newApiSuccess = await SendCallCenterStatusRequestAsync(
+                NewCallCenterStatusUrl,
+                HttpMethod.Post,
+                "Updated CC API",
+                jsonPayload,
+                cleanOrderNumber,
+                cleanStatus,
+                cleanTransact,
+                retryCount).ConfigureAwait(false);
+
+            // 2. Then call Old API: https://api.pjcrescent.com/api/public/orders/status (PATCH)
+            bool oldApiSuccess = await SendCallCenterStatusRequestAsync(
+                OldCallCenterStatusUrl,
+                new HttpMethod("PATCH"),
+                "Old CC API",
+                jsonPayload,
+                cleanOrderNumber,
+                cleanStatus,
+                cleanTransact,
+                retryCount).ConfigureAwait(false);
+
+            if (newApiSuccess || oldApiSuccess)
+            {
+                _sentStatusCache.TryAdd(cacheKey, 0);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static async Task<bool> SendCallCenterStatusRequestAsync(
+            string endpoint,
+            HttpMethod method,
+            string apiLabel,
+            string jsonPayload,
+            string cleanOrderNumber,
+            string cleanStatus,
+            string cleanTransact,
+            int retryCount)
+        {
             int attempt = 0;
             while (attempt < retryCount)
             {
                 attempt++;
+                var sw = Stopwatch.StartNew();
                 try
                 {
-                    using (var request = new HttpRequestMessage(new HttpMethod("PATCH"), endpoint))
+                    using (var request = new HttpRequestMessage(method, endpoint))
                     {
                         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                         request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-                        Log.Information("Sending Call Center order status update to {Endpoint} (Attempt {Attempt}/{MaxRetries}). Payload: {Payload}", endpoint, attempt, retryCount, jsonPayload);
+                        Log.Information("[{ApiLabel}] Sending {Method} to {Endpoint} (Attempt {Attempt}/{MaxRetries}). Payload: {Payload}",
+                            apiLabel, method.Method, endpoint, attempt, retryCount, jsonPayload);
 
                         HttpResponseMessage response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        sw.Stop();
                         string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                        Log.Information("[{ApiLabel}] Server Response received (Attempt {Attempt}/{MaxRetries}) -> OrderNumber: {OrderNumber}, Status: {Status}, StatusCode: {StatusCode} ({(int)StatusCode}), Latency: {Latency}ms, Body: {ResponseBody}",
+                            apiLabel, attempt, retryCount, cleanOrderNumber, cleanStatus, response.StatusCode, (int)response.StatusCode, sw.ElapsedMilliseconds, responseBody);
 
                         if (response.IsSuccessStatusCode)
                         {
-                            _sentStatusCache.TryAdd(cacheKey, 0);
-                            Log.Information("Successfully updated Call Center Order Status. OrderNumber: {OrderNumber}, Status: {Status}, Transact: {Transact}, Response: {Response}", cleanOrderNumber, cleanStatus, cleanTransact, responseBody);
+                            Log.Information("[{ApiLabel}] SUCCESS for OrderNumber: {OrderNumber}, Status: {Status}, Transact: {Transact}",
+                                apiLabel, cleanOrderNumber, cleanStatus, cleanTransact);
                             return true;
                         }
                         else
                         {
-                            Log.Warning("Failed to update Call Center Order Status on Attempt {Attempt}/{MaxRetries}. OrderNumber: {OrderNumber}, Status: {Status}, StatusCode: {StatusCode}, Response: {Response}", attempt, retryCount, cleanOrderNumber, cleanStatus, response.StatusCode, responseBody);
+                            Log.Warning("[{ApiLabel}] Failed on Attempt {Attempt}/{MaxRetries}. OrderNumber: {OrderNumber}, StatusCode: {StatusCode}, Response: {Response}",
+                                apiLabel, attempt, retryCount, cleanOrderNumber, response.StatusCode, responseBody);
 
                             int statusCode = (int)response.StatusCode;
                             if (statusCode >= 400 && statusCode < 500 && statusCode != 408 && statusCode != 429)
@@ -90,24 +144,28 @@ namespace WeCreatives_EOI.Classes
                 }
                 catch (Exception ex)
                 {
-                    Log.Warning(ex, "Exception on Attempt {Attempt}/{MaxRetries} while posting Call Center Order Status for OrderNumber: {OrderNumber}, Status: {Status}. Will retry if attempts remain.", attempt, retryCount, cleanOrderNumber, cleanStatus);
+                    sw.Stop();
+                    Log.Warning(ex, "[{ApiLabel}] Exception on Attempt {Attempt}/{MaxRetries} for OrderNumber: {OrderNumber} after {ElapsedMs}ms. Error: {Message}",
+                        apiLabel, attempt, retryCount, cleanOrderNumber, sw.ElapsedMilliseconds, ex.Message);
                 }
 
                 if (attempt < retryCount)
                 {
                     int delayMs = attempt switch
                     {
-                        1 => 3000,
-                        2 => 6000,
-                        3 => 12000,
-                        _ => 20000
+                        1 => 2000,
+                        2 => 4000,
+                        3 => 8000,
+                        _ => 15000
                     };
-                    Log.Information("Waiting {DelaySeconds}s before retrying Call Center status update for OrderNumber: {OrderNumber}...", delayMs / 1000, cleanOrderNumber);
+                    Log.Information("[{ApiLabel}] Waiting {DelaySeconds}s before retrying for OrderNumber: {OrderNumber}...",
+                        apiLabel, delayMs / 1000, cleanOrderNumber);
                     await Task.Delay(delayMs).ConfigureAwait(false);
                 }
             }
 
-            Log.Error("All {MaxRetries} attempts exhausted. Failed to update Call Center Order Status for OrderNumber: {OrderNumber}, Status: {Status}", retryCount, cleanOrderNumber, cleanStatus);
+            Log.Error("[{ApiLabel}] All {MaxRetries} attempts exhausted for OrderNumber: {OrderNumber}, Status: {Status}",
+                apiLabel, retryCount, cleanOrderNumber, cleanStatus);
             return false;
         }
         private const int COINIT_APARTMENTTHREADED = 0x2;
